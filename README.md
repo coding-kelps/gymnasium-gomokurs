@@ -1,2 +1,2 @@
-# gomokurs-gymnasium
+# gymnasium-gomokurs
 A gymnasium environment for gomoku
