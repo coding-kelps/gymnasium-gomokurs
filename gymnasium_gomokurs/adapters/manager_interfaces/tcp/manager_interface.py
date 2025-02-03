@@ -1,8 +1,11 @@
 import asyncio
 from .action_ids import ActionID
-from typing import Dict
+from ....domain.gymnasium_gomokurs.ports import ManagerInterface
+from ....domain.gymnasium_gomokurs.models.game import *
+from ....domain.gymnasium_gomokurs.models.actions import *
+from typing import Dict, NoReturn
 
-class Interface():
+class TCPManagerInterface(ManagerInterface):
     PROTOCOL_VERSION = "0.1.0"
 
     def __init__(self,
@@ -45,7 +48,7 @@ class Interface():
         else:
             raise Exception(f"unexpected manager action with ID {data[0]} at protocol compatibility validation")
 
-    async def listen(self):
+    async def listen(self, queue: asyncio.Queue) -> NoReturn:
         handlers = {
             ActionID.MANAGER_START:     self.__start_handler,
             ActionID.MANAGER_TURN:      self.__turn_handler,
@@ -72,25 +75,30 @@ class Interface():
                     await self.notify_unknown(f"unknown action id {data[0]}")
                     raise Exception(f"received unknown action id {data[0]}")
 
-                await handler()
+                action = await handler()
+                await queue.put(action)
         except asyncio.CancelledError:
             pass
     
-    async def __start_handler(self):
+    async def __start_handler(self) -> StartAction:
         data = await self.reader.read(1)
 
-        board_size = int.from_bytes(data, 'big')
+        size = int.from_bytes(data, 'big')
 
-    async def __turn_handler(self):
+        return StartAction(size)
+
+    async def __turn_handler(self) -> TurnAction:
         data = await self.reader.read(2)
 
         x = int.from_bytes(data[0], 'big')
         y = int.from_bytes(data[1], 'big')
 
-    async def __begin_handler(self):
-        return
+        return TurnAction(Move(x, y))
+
+    async def __begin_handler(self) -> BeginAction:
+        return BeginAction()
     
-    async def __board_handler(self):
+    async def __board_handler(self) -> BoardAction:
         TURN_PACKET_SIZE = 3
 
         data = await self.reader.read(4)
@@ -101,40 +109,48 @@ class Interface():
 
         turns = [(x, y, field) for x, y, field in zip(data[0::3], data[1::3], data[2::3])]
 
-    async def __info_handler(self):
+        return BoardAction(turns)
+
+    async def __info_handler(self) -> InfoAction:
         data = self.socket.recv(4)
         payload_len = int.from_bytes(data, 'big')
 
         data = self.socket.recv(payload_len)
         info = data.decode("utf-8")
 
-    async def __end_handler(self):
-        return
+        return InfoAction(info)
+
+    async def __end_handler(self) -> EndAction:
+        return EndAction()
     
-    async def __about_handler(self):
-        return
+    async def __about_handler(self) -> AboutAction:
+        return AboutAction()
     
-    async def __unknown_handler(self):
+    async def __unknown_handler(self) -> UnknownAction:
         data = self.socket.recv(4)
         payload_len = int.from_bytes(data, 'big')
 
         data = self.socket.recv(payload_len)
         unknown_msg = data.decode("utf-8")
 
-    async def __error_handler(self):
+        return UnknownAction(unknown_msg)
+
+    async def __error_handler(self) -> ErrorAction:
         data = self.socket.recv(4)
         payload_len = int.from_bytes(data, 'big')
 
         data = self.socket.recv(payload_len)
         error_msg = data.decode("utf-8")
 
-    async def notify_readiness(self):
+        return ErrorAction(error_msg)
+
+    async def notify_readiness(self) -> None:
         data = bytearray(ActionID.PLAYER_READY)
 
         self.writer.write(data)
         await self.writer.drain()
 
-    async def notify_move(self, move):
+    async def notify_move(self, move) -> None:
         data = bytearray(ActionID.PLAYER_PLAY)
 
         data.append(move.x.to_bytes(1, 'big'))
@@ -155,7 +171,7 @@ class Interface():
         self.writer.write(data)
         await self.writer.drain()
 
-    async def notify_unknown(self, msg: str):
+    async def notify_unknown(self, msg: str) -> None:
         data = bytearray(ActionID.PLAYER_UNKNOWN)
 
         encoded_msg = msg.encode("utf-8")
@@ -166,7 +182,7 @@ class Interface():
         self.writer.write(data)
         await self.writer.drain()
 
-    async def notify_error(self, msg: str):
+    async def notify_error(self, msg: str) -> None:
         data = bytearray(ActionID.PLAYER_ERROR)
 
         encoded_msg = msg.encode("utf-8")
@@ -177,7 +193,7 @@ class Interface():
         self.writer.write(data)
         await self.writer.drain()
 
-    async def notify_message(self, msg: str):
+    async def notify_error(self, msg: str) -> None:
         data = bytearray(ActionID.PLAYER_MESSAGE)
 
         encoded_msg = msg.encode("utf-8")
@@ -188,7 +204,7 @@ class Interface():
         self.writer.write(data)
         await self.writer.drain()
 
-    async def notify_debug(self, msg: str):
+    async def notify_debug(self, msg: str) -> None:
         data = bytearray(ActionID.PLAYER_DEBUG)
 
         encoded_msg = msg.encode("utf-8")
@@ -199,7 +215,7 @@ class Interface():
         self.writer.write(data)
         await self.writer.drain()
 
-    async def notify_suggestion(self, move):
+    async def notify_suggestion(self, move) -> None:
         data = bytearray(ActionID.PLAYER_SUGGESTION)
 
         data.append(move.x.to_bytes(1, 'big'))
