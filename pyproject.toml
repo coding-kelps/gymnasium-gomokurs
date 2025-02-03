@@ -1,0 +1,20 @@
+[project]
+name = "gymnasium-gomokurs"
+version = "0.1.0"
+description = "A gymnasium environment for gomoku"
+authors = [
+    {name = "Guilhem Santé",email = "guilhem.snt@gmail.com"}
+]
+readme = "README.md"
+requires-python = ">=3.9,<3.13"
+dependencies = [
+    "gymnasium (>=1.0.0,<2.0.0)",
+    "asyncio (>=3.4.3,<4.0.0)"
+]
+license = "MIT"
+license-files = ["LICENSE"]
+
+
+[build-system]
+requires = ["poetry-core>=2.0.0,<3.0.0"]
+build-backend = "poetry.core.masonry.api"
