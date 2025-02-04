@@ -231,35 +231,41 @@ class TcpManagerInterface(ManagerInterface):
     def _send_readiness(self) -> None:
         self.conn.sendall(ActionID.PLAYER_READY.value)
 
-
     def _send_move(self, move) -> None:
-        self.conn.sendall(ActionID.PLAYER_PLAY.value)
+        data = (
+            ActionID.PLAYER_PLAY.value +
+            move.x.to_bytes(1, 'big') +
+            move.y.to_bytes(1, 'big')
+        )
+        self.conn.sendall(data)
 
-        self.conn.sendall(move.x.to_bytes(1, 'big'))
-        self.conn.sendall(move.y.to_bytes(1, 'big'))
 
-
-    def _send_metadata(self, metadata: Dict[str, str]):
-        self.conn.sendall(ActionID.PLAYER_METADATA.value)
-
+    def _send_metadata(self, metadata: Dict[str, str]) -> None:
         fmt_metadata = ",".join([f"{k}={v}" for k, v in metadata.items()])
         encoded_fmt_metadata = fmt_metadata.encode("utf-8")
+        data = (
+            ActionID.PLAYER_METADATA.value +
+            len(encoded_fmt_metadata).to_bytes(4, 'big') +
+            encoded_fmt_metadata
+        )
+        self.conn.sendall(data)
 
-        self.conn.sendall(len(encoded_fmt_metadata).to_bytes(4, 'big'))
-        self.conn.sendall(encoded_fmt_metadata)
 
     def _send_unknown(self, msg: str) -> None:
-        self.conn.sendall(ActionID.PLAYER_UNKNOWN.value)
-
         encoded_msg = msg.encode("utf-8")
+        data = (
+            ActionID.PLAYER_UNKNOWN.value +
+            len(encoded_msg).to_bytes(4, 'big') +
+            encoded_msg
+        )
+        self.conn.sendall(data)
 
-        self.conn.sendall(len(encoded_msg).to_bytes(4, 'big'))
-        self.conn.sendall(encoded_msg)
 
     def _send_error(self, msg: str) -> None:
-        self.conn.sendall(ActionID.PLAYER_MESSAGE.value)
-
         encoded_msg = msg.encode("utf-8")
-
-        self.conn.sendall(len(encoded_msg).to_bytes(4, 'big'))
-        self.conn.sendall(encoded_msg)
+        data = (
+            ActionID.PLAYER_MESSAGE.value +
+            len(encoded_msg).to_bytes(4, 'big') +
+            encoded_msg
+        )
+        self.conn.sendall(data)
