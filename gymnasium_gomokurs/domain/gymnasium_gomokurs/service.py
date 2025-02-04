@@ -3,11 +3,14 @@ import gymnasium
 from .ports import ManagerInterface
 from .models.game import *
 import asyncio
+import logging
+
+logger = logging.getLogger(__name__)
 
 class GomokursEnv(gymnasium.Env):
     def __init__(self, manager_interface: ManagerInterface):
         self._manager_interface = manager_interface
-        self._size, self._board = manager_interface.get_init_state()
+        self._size, self._state = manager_interface.get_init_state()
         self.observation_space = gymnasium.spaces.Dict(
             {
                 "availables":   gymnasium.spaces.Box(0, self._size - 1, shape=(2,), dtype=int),

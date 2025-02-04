@@ -4,6 +4,9 @@ from ....domain.gymnasium_gomokurs.ports import ManagerInterface
 from ....domain.gymnasium_gomokurs.models.game import *
 from typing import Dict
 import numpy as np
+import logging
+
+logger = logging.getLogger(__name__)
 
 class TCPManagerInterface(ManagerInterface):
     PROTOCOL_VERSION = "0.1.0"
@@ -46,6 +49,7 @@ class TCPManagerInterface(ManagerInterface):
         if not data:
             raise Exception("connection to manager closed before protocol validation")
         elif data[0] == ActionID.MANAGER_PROTOCOL_COMPATIBLE:
+            logging.debug("manager recognized protocol as compatible")
             return
         elif data[0] == ActionID.MANAGER_UNKNOWN:
             raise Exception("manager does not know protocol compatibility check action")
@@ -70,28 +74,32 @@ class TCPManagerInterface(ManagerInterface):
                 size = self.loop.run_until_complete(self._start_handler())
                 board = np.zeros((size, size))
 
+                logging.debug(f"initialized board following START action")
+
                 await self._send_readiness()
             elif data[0] == ActionID.MANAGER_TURN:
                 move = self.loop.run_until_complete(self._turn_handler())
 
                 if not board:
-                    err = "unexpected turn action before game initialization"
+                    err = "unexpected TURN action before game initialization"
                     await self._send_error(err)
                     raise Exception(err)
                     
                 board[move.x][move.y] = CellStatus.OPPONENT
 
+                logging.debug(f"initialized state following TURN action")
                 return (size, board)
             elif data[0] == ActionID.MANAGER_BEGIN:
                 if not board:
-                    err = "unexpected begin action before game initialization"
+                    err = "unexpected BEGIN action before game initialization"
                     await self._send_error(err)
                     raise Exception(err)
-                    
+                
+                logging.debug(f"initialized state following BEGIN action")
                 return (size, board)
             elif data[0] == ActionID.MANAGER_BOARD:
                 if not board:
-                    err = "unexpected board action before game initialization"
+                    err = "unexpected BOARD action before game initialization"
                     await self._send_error(err)
                     raise Exception(err)
 
@@ -99,7 +107,8 @@ class TCPManagerInterface(ManagerInterface):
 
                 for turn in turns:
                     board[turn.move.x][turn.move.y] = CellStatus.PLAYER if turn.field == RelativeField.OWN_STONE else CellStatus.OPPONENT
-                    
+                
+                logging.debug(f"initialized state following BOARD action")
                 return (size, board)
             else:
                 err = f"unexpected action with id {data[0]} before game initialization"
@@ -119,8 +128,9 @@ class TCPManagerInterface(ManagerInterface):
             elif data[0] == ActionID.MANAGER_END:
                 return None, True
             elif data[0] == ActionID.MANAGER_INFO:
-                _ = await self._info_handler()
+                info = await self._info_handler()
 
+                logging.info(f"received info: {info}")
                 continue
             elif data[0] == ActionID.MANAGER_UNKNOWN:
                 unknown = await self._unknown_handler()
@@ -131,6 +141,7 @@ class TCPManagerInterface(ManagerInterface):
             elif data[0] == ActionID.MANAGER_ABOUT:
                 await self._about_handler()
 
+                logging.debug(f"send metadata following ABOUT action")
                 continue
             else:
                 err = f"unexpected action with id {data[0]} after game initialization"
