@@ -2,30 +2,17 @@ from typing import Optional
 import gymnasium
 from .ports import ManagerInterface
 from .models.game import *
-import asyncio
 import logging
 
 logger = logging.getLogger(__name__)
 
 class GomokursEnv(gymnasium.Env):
-    metadata = {"render_modes": ["human"]}
-
     def __init__(self, manager_interface: ManagerInterface):
         self._manager_interface = manager_interface
-        self.size, self.state = self._manager_interface.get_init_state()
-        self.observation_space = gymnasium.spaces.Dict(
-            {
-                "availables":   gymnasium.spaces.Box(0, self.size - 1, shape=(2,), dtype=int),
-                "player":       gymnasium.spaces.Box(0, self.size - 1, shape=(2,), dtype=int),
-                "opponent":     gymnasium.spaces.Box(0, self.size - 1, shape=(2,), dtype=int),
-            }
-        )
-        self.action_space = gymnasium.spaces.Discrete(self.size ** 2)
-        self.loop = asyncio.get_event_loop()
 
     def _action_to_move(self, action_idx: int) -> Move:
-        x = action_idx / self.size
-        y = action_idx % self.size
+        x = int((action_idx - action_idx % self.size) / self.size)
+        y = int(action_idx % self.size)
 
         return Move(x, y)
 
@@ -42,7 +29,15 @@ class GomokursEnv(gymnasium.Env):
     def reset(self, seed: Optional[int] = None, options: Optional[dict] = None):
         super().reset(seed=seed)
 
-        # THIS FUNCTION IS STILL UNIMPLEMENTED
+        self.size, self.state = self._manager_interface.get_init_state()
+        self.observation_space = gymnasium.spaces.Dict(
+            {
+                "availables":   gymnasium.spaces.Box(0, self.size - 1, shape=(2,), dtype=int),
+                "player":       gymnasium.spaces.Box(0, self.size - 1, shape=(2,), dtype=int),
+                "opponent":     gymnasium.spaces.Box(0, self.size - 1, shape=(2,), dtype=int),
+            }
+        )
+        self.action_space = gymnasium.spaces.Discrete(self.size ** 2)
 
         observation = self._get_obs()
         info = self._get_info()
@@ -51,16 +46,17 @@ class GomokursEnv(gymnasium.Env):
 
     def step(self, action):
         move = self._action_to_move(action)
+
         if self.state[move.x][move.y] != CellStatus.AVAILABLE.value:
             raise Exception(f"player move invalid: cell at position {move} is not available")
-        self.state[move.x][move.y] = CellStatus.PLAYER
+        self.state[move.x][move.y] = CellStatus.PLAYER.value
         self._manager_interface.notify_move(move)
 
         opponent_move, end = self._manager_interface.get_opponent_turn()
         if opponent_move:
             if self.state[opponent_move.x][opponent_move.y] != CellStatus.AVAILABLE.value:
                 raise Exception(f"opponent move invalid: cell at position {opponent_move} is not available")
-            self.state[move.x][move.y] = CellStatus.OPPONENT
+            self.state[move.x][move.y] = CellStatus.OPPONENT.value
 
         terminated = True if end else False
         truncated = False
@@ -68,4 +64,7 @@ class GomokursEnv(gymnasium.Env):
         observation = self._get_obs()
         info = self._get_info()
 
-        return terminated, truncated, reward, observation, info
+        return observation, reward, terminated, truncated, info
+
+    def close(self):
+        pass
