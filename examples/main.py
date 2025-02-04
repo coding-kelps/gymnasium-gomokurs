@@ -6,8 +6,16 @@ def main():
 
     env = GomokursEnv(tcp_interface_manager)
 
-    while True:
-        pass
+    observation, info = env.reset()
+
+    episode_over = False
+    while not episode_over:
+        action = env.action_space.sample()        
+        observation, reward, terminated, truncated, info = env.step(action)
+
+        episode_over = terminated or truncated
+
+    env.close()
 
 if __name__ == '__main__':
     main()
