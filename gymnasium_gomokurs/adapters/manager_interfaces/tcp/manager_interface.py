@@ -2,7 +2,8 @@ import asyncio
 from .action_ids import ActionID
 from ....domain.gymnasium_gomokurs.ports import ManagerInterface
 from ....domain.gymnasium_gomokurs.models.game import *
-from typing import Dict, NoReturn
+from typing import Dict
+import numpy as np
 
 class TCPManagerInterface(ManagerInterface):
     PROTOCOL_VERSION = "0.1.0"
@@ -10,15 +11,24 @@ class TCPManagerInterface(ManagerInterface):
     def __init__(self, reader: asyncio.StreamReader, writer: asyncio.StreamWriter):
         self.reader = reader
         self.writer = writer
-        self.opponent_turn_queue = asyncio.Queue()
-        self.game_finished_queue = asyncio.Queue(1)
-        self.manager_error_queue = asyncio.Queue(1)
         self.loop = asyncio.get_event_loop()
 
         try:
             self.loop.run_until_complete(self._check_protocol_compatibility())
         except Exception as e:
             raise Exception(f"protocol compability check failed: {e}")
+    
+    def get_init_state(self) -> tuple[int, np.ndarray]:
+        return self.loop.run_until_complete(self._receive_init_state())
+    
+    def get_opponent_turn(self) -> tuple[Move | None, bool | None]:
+        return self.loop.run_until_complete(self._receive_opponent_turn())
+    
+    def notify_move(self, move: Move) -> None:
+        return self.loop.run_until_complete(self._send_move(move))
+    
+    def notify_error(self, error_msg: str) -> None:
+        return self.loop.run_until_complete(self._send_error(error_msg))
 
     async def _check_protocol_compatibility(self):
         data = bytearray(ActionID.PLAYER_PROTOCOL_VERSION)
@@ -49,70 +59,99 @@ class TCPManagerInterface(ManagerInterface):
             raise Exception(f"manager error: {error_msg}")
         else:
             raise Exception(f"unexpected manager action with ID {data[0]} at protocol compatibility validation")
-
-    def get_opponent_turn(self) -> Move:
-        opponent_turn = self.loop.run_until_complete(self.opponent_turn_queue.get())
-
-        return opponent_turn
     
-    def is_game_finished(self) -> bool:
-        try:
-            _ = self.opponent_turn_queue.get_nowait()
+    async def _receive_init_state(self) -> tuple[int, np.ndarray]:
+        while True:        
+            data = await self.reader.read(1)
+            if not data:
+                raise Exception("connection closed by the remote host")
+            
+            if data[0] == ActionID.MANAGER_START:
+                size = self.loop.run_until_complete(self._start_handler())
+                board = np.zeros((size, size))
 
-            return True
-        except asyncio.QueueEmpty:
-            return False
+                await self._send_readiness()
+            elif data[0] == ActionID.MANAGER_TURN:
+                move = self.loop.run_until_complete(self._turn_handler())
 
-    async def _listen(self) -> NoReturn:
-        handlers = {
-            ActionID.MANAGER_START:     self._start_handler,
-            ActionID.MANAGER_TURN:      self._turn_handler,
-            ActionID.MANAGER_BEGIN:     self._begin_handler,
-            ActionID.MANAGER_BOARD:     self._board_handler,
-            ActionID.MANAGER_INFO:      self._info_handler,
-            ActionID.MANAGER_END:       self._end_handler,
-            ActionID.MANAGER_ABOUT:     self._about_handler,
-            ActionID.MANAGER_UNKNOWN:   self._unknown_handler,
-            ActionID.MANAGER_ERROR:     self._error_handler,
-        }
+                if not board:
+                    err = "unexpected turn action before game initialization"
+                    await self._send_error(err)
+                    raise Exception(err)
+                    
+                board[move.x][move.y] = CellStatus.OPPONENT
 
-        try:
-            while True:
-                if not self.reader:
-                    raise Exception("tcp reader not initialized")
-                
-                data = await self.reader.read(1)
-                if not data:
-                    raise Exception("connection closed by the remote host")
-                
-                handler = handlers.get(data[0])
-                if not handler:
-                    await self.notify_unknown(f"unknown action id {data[0]}")
-                    raise Exception(f"received unknown action id {data[0]}")
+                return (size, board)
+            elif data[0] == ActionID.MANAGER_BEGIN:
+                if not board:
+                    err = "unexpected begin action before game initialization"
+                    await self._send_error(err)
+                    raise Exception(err)
+                    
+                return (size, board)
+            elif data[0] == ActionID.MANAGER_BOARD:
+                if not board:
+                    err = "unexpected board action before game initialization"
+                    await self._send_error(err)
+                    raise Exception(err)
 
-                await handler()
-        except asyncio.CancelledError:
-            pass
+                turns = await self._board_handler()
+
+                for turn in turns:
+                    board[turn.move.x][turn.move.y] = CellStatus.PLAYER if turn.field == RelativeField.OWN_STONE else CellStatus.OPPONENT
+                    
+                return (size, board)
+            else:
+                err = f"unexpected action with id {data[0]} before game initialization"
+                await self._send_error(err)
+                raise Exception(err)
     
-    async def _start_handler(self)-> None:
+    async def _receive_opponent_turn(self) -> tuple[Move | None, bool | None]:
+        while True:        
+            data = await self.reader.read(1)
+            if not data:
+                raise Exception("connection closed by the remote host")
+            
+            if data[0] == ActionID.MANAGER_TURN:
+                move = await self._turn_handler()
+
+                return (move, None)
+            elif data[0] == ActionID.MANAGER_END:
+                return None, True
+            elif data[0] == ActionID.MANAGER_INFO:
+                _ = await self._info_handler()
+
+                continue
+            elif data[0] == ActionID.MANAGER_UNKNOWN:
+                unknown = await self._unknown_handler()
+                raise Exception(f"manager error: {unknown}")
+            elif data[0] == ActionID.MANAGER_ERROR:
+                error = await self._error_handler()
+                raise Exception(f"manager error: {error}")
+            elif data[0] == ActionID.MANAGER_ABOUT:
+                await self._about_handler()
+
+                continue
+            else:
+                err = f"unexpected action with id {data[0]} after game initialization"
+                await self._send_error(err)
+                raise Exception(err)
+
+    async def _start_handler(self) -> int:
         data = await self.reader.read(1)
 
         size = int.from_bytes(data, 'big')
 
-        pass
+        return size
 
-
-    async def _turn_handler(self)-> None:
+    async def _turn_handler(self) -> Move:
         data = await self.reader.read(2)
 
         move = Move(int.from_bytes(data[0], 'big'), int.from_bytes(data[1], 'big'))
 
         await self.opponent_turn_queue.put(move)
 
-    async def _begin_handler(self)-> None:
-        pass
-    
-    async def _board_handler(self)-> None:
+    async def _board_handler(self)-> list[RelativeTurn]:
         TURN_PACKET_SIZE = 3
 
         data = await self.reader.read(4)
@@ -123,57 +162,54 @@ class TCPManagerInterface(ManagerInterface):
 
         turns = [(x, y, field) for x, y, field in zip(data[0::3], data[1::3], data[2::3])]
 
-        pass
+        return turns
 
-    async def _info_handler(self)-> None:
+    async def _info_handler(self)-> str:
         data = self.socket.recv(4)
         payload_len = int.from_bytes(data, 'big')
 
         data = self.socket.recv(payload_len)
-        _ = data.decode("utf-8")
+        info = data.decode("utf-8")
 
-        pass
-
-    async def _end_handler(self)-> None:
-        await self.opponent_turn_queue.put(True)
+        return info
     
     async def _about_handler(self)-> None:
-        await self._notify_metadata({"name": "gymnasium-gomokurs"})
+        await self._send_metadata({"name": "gymnasium-gomokurs"})
     
-    async def _unknown_handler(self)-> None:
+    async def _unknown_handler(self)-> str:
         data = self.socket.recv(4)
         payload_len = int.from_bytes(data, 'big')
 
         data = self.socket.recv(payload_len)
         unknown_msg = data.decode("utf-8")
 
-        await self.manager_error_queue.put(unknown_msg)
+        return unknown_msg
 
-    async def _error_handler(self)-> None:
+    async def _error_handler(self)-> str:
         data = self.socket.recv(4)
         payload_len = int.from_bytes(data, 'big')
 
         data = self.socket.recv(payload_len)
         error_msg = data.decode("utf-8")
 
-        await self.manager_error_queue.put(error_msg)
+        return error_msg
 
-    async def _notify_readiness(self) -> None:
+    async def _send_readiness(self) -> None:
         data = bytearray(ActionID.PLAYER_READY)
 
         self.writer.write(data)
         await self.writer.drain()
 
-    def notify_move(self, move) -> None:
+    async def _send_move(self, move) -> None:
         data = bytearray(ActionID.PLAYER_PLAY)
 
         data.append(move.x.to_bytes(1, 'big'))
         data.append(move.y.to_bytes(1, 'big'))
 
         self.writer.write(data)
-        self.loop.run_until_complete(self.writer.drain())
+        await self.writer.drain()
 
-    async def _notify_metadata(self, metadata: Dict[str, str]):
+    async def _send_metadata(self, metadata: Dict[str, str]):
         data = bytearray(ActionID.PLAYER_METADATA)
 
         fmt_metadata = ",".join([f"{k}={v}" for k, v in metadata.items()])
@@ -185,7 +221,7 @@ class TCPManagerInterface(ManagerInterface):
         self.writer.write(data)
         await self.writer.drain()
 
-    async def _notify_unknown(self, msg: str) -> None:
+    async def _send_unknown(self, msg: str) -> None:
         data = bytearray(ActionID.PLAYER_UNKNOWN)
 
         encoded_msg = msg.encode("utf-8")
@@ -196,7 +232,7 @@ class TCPManagerInterface(ManagerInterface):
         self.writer.write(data)
         await self.writer.drain()
 
-    async def notify_error(self, msg: str) -> None:
+    async def _send_error(self, msg: str) -> None:
         data = bytearray(ActionID.PLAYER_MESSAGE)
 
         encoded_msg = msg.encode("utf-8")
@@ -205,4 +241,4 @@ class TCPManagerInterface(ManagerInterface):
         data.append(encoded_msg)
 
         self.writer.write(data)
-        self.loop.run_until_complete(self.writer.drain())
+        await self.writer.drain()
