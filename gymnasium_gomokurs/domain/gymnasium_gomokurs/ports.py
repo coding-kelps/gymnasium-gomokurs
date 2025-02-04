@@ -1,12 +1,16 @@
 from typing import Dict
 from .models.game import Move
+import numpy as np
 
 class ManagerInterface:
-    def get_opponent_turn(self) -> Move:
+    def get_init_state(self) -> tuple[int, np.array]:
         pass
 
-    def is_game_finished(self) -> bool:
+    def get_opponent_turn(self) -> tuple[Move | None, bool | None]:
         pass
     
-    def notify_move(self, move) -> None:
+    def notify_move(self, move: Move) -> None:
+        pass
+
+    def notify_error(self, error_msg: str) -> None:
         pass
