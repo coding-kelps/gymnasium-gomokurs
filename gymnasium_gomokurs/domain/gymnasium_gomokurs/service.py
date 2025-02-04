@@ -8,17 +8,19 @@ import logging
 logger = logging.getLogger(__name__)
 
 class GomokursEnv(gymnasium.Env):
+    metadata = {"render_modes": ["human"]}
+
     def __init__(self, manager_interface: ManagerInterface):
         self._manager_interface = manager_interface
-        self._size, self._state = manager_interface.get_init_state()
+        self.size, self.state = self._manager_interface.get_init_state()
         self.observation_space = gymnasium.spaces.Dict(
             {
-                "availables":   gymnasium.spaces.Box(0, self._size - 1, shape=(2,), dtype=int),
-                "player":       gymnasium.spaces.Box(0, self._size - 1, shape=(2,), dtype=int),
-                "opponent":     gymnasium.spaces.Box(0, self._size - 1, shape=(2,), dtype=int),
+                "availables":   gymnasium.spaces.Box(0, self.size - 1, shape=(2,), dtype=int),
+                "player":       gymnasium.spaces.Box(0, self.size - 1, shape=(2,), dtype=int),
+                "opponent":     gymnasium.spaces.Box(0, self.size - 1, shape=(2,), dtype=int),
             }
         )
-        self.action_space = gymnasium.spaces.Discrete(self._size ** 2)
+        self.action_space = gymnasium.spaces.Discrete(self.size ** 2)
         self.loop = asyncio.get_event_loop()
 
     def _action_to_move(self, action_idx: int) -> Move:
@@ -29,9 +31,9 @@ class GomokursEnv(gymnasium.Env):
 
     def _get_obs(self):
         return {
-            "availables":   (self._board == CellStatus.AVAILABLE).astype(int),
-            "player":       (self._board == CellStatus.PLAYER).astype(int),
-            "opponent":     (self._board == CellStatus.OPPONENT).astype(int),
+            "availables":   (self.state == CellStatus.AVAILABLE.value).astype(int),
+            "player":       (self.state == CellStatus.PLAYER.value).astype(int),
+            "opponent":     (self.state == CellStatus.OPPONENT.value).astype(int),
         }
 
     def _get_info(self):
@@ -49,16 +51,16 @@ class GomokursEnv(gymnasium.Env):
 
     def step(self, action):
         move = self._action_to_move(action)
-        if self._board[move.x][move.y] != CellStatus.AVAILABLE:
+        if self.state[move.x][move.y] != CellStatus.AVAILABLE.value:
             raise Exception(f"player move invalid: cell at position {move} is not available")
-        self._board[move.x][move.y] = CellStatus.PLAYER
+        self.state[move.x][move.y] = CellStatus.PLAYER
         self._manager_interface.notify_move(move)
 
         opponent_move, end = self._manager_interface.get_opponent_turn()
         if opponent_move:
-            if self._board[opponent_move.x][opponent_move.y] != CellStatus.AVAILABLE:
+            if self.state[opponent_move.x][opponent_move.y] != CellStatus.AVAILABLE.value:
                 raise Exception(f"opponent move invalid: cell at position {opponent_move} is not available")
-            self._board[move.x][move.y] = CellStatus.OPPONENT
+            self.state[move.x][move.y] = CellStatus.OPPONENT
 
         terminated = True if end else False
         truncated = False
