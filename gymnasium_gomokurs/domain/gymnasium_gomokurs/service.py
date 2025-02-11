@@ -4,8 +4,6 @@ from .ports import ManagerInterface
 from .models.game import *
 import logging
 
-logger = logging.getLogger(__name__)
-
 class GomokursEnv(gymnasium.Env):
     def __init__(self, manager_interface: ManagerInterface):
         self._manager_interface = manager_interface
@@ -52,15 +50,25 @@ class GomokursEnv(gymnasium.Env):
         self.state[move.x][move.y] = CellStatus.PLAYER.value
         self._manager_interface.notify_move(move)
 
-        opponent_move, end = self._manager_interface.get_opponent_turn()
+        opponent_move, result, end = self._manager_interface.get_opponent_turn()
         if opponent_move:
             if self.state[opponent_move.x][opponent_move.y] != CellStatus.AVAILABLE.value:
                 raise Exception(f"opponent move invalid: cell at position {opponent_move} is not available")
-            self.state[move.x][move.y] = CellStatus.OPPONENT.value
+            self.state[opponent_move.x][opponent_move.y] = CellStatus.OPPONENT.value
 
-        terminated = True if end else False
-        truncated = False
-        reward = 0
+        terminated = True if result else False
+        truncated = True if end else False
+
+        if result == GameEnd.WIN:
+            logging.info("game result - win")
+            reward = 1.0
+        elif result == GameEnd.DRAW:
+            logging.info("game result - draw")
+            reward = 0.5
+        else:
+            logging.info("game result - loose")
+            reward = 0.0
+
         observation = self._get_obs()
         info = self._get_info()
 
