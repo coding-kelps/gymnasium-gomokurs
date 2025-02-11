@@ -4,6 +4,8 @@ from .ports import ManagerInterface
 from .models.game import *
 import logging
 
+logger = logging.getLogger("gymnasium-gomokurs")
+
 class GomokursEnv(gymnasium.Env):
     def __init__(self, manager_interface: ManagerInterface):
         self._manager_interface = manager_interface
@@ -60,13 +62,15 @@ class GomokursEnv(gymnasium.Env):
         truncated = True if end else False
 
         if result == GameEnd.WIN:
-            logging.info("game result - win")
+            logger.info("game result - win")
             reward = 1.0
         elif result == GameEnd.DRAW:
-            logging.info("game result - draw")
+            logger.info("game result - draw")
             reward = 0.5
+        elif result == GameEnd.LOOSE:
+            logger.info("game result - loose")
+            reward = 0.0
         else:
-            logging.info("game result - loose")
             reward = 0.0
 
         observation = self._get_obs()

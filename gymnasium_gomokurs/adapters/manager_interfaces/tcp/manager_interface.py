@@ -6,7 +6,7 @@ import numpy as np
 import logging
 import socket
 
-logger = logging.getLogger(__name__)
+logger = logging.getLogger("gymnasium-gomokurs")
 
 def create_tcp_manager_interface_from_active_connection(host: str = "localhost", port: int = 49912):
     s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
