@@ -5,6 +5,7 @@ class CellStatus(Enum):
     PLAYER      = 1
     OPPONENT    = 2
 
+
 class Move:
     def __init__(self, x: int, y: int):
         self.x = x
@@ -21,3 +22,8 @@ class RelativeTurn:
     def __init__(self, x: int, y: int, field: RelativeField):
         self.move = Move(x, y)
         self.field = field
+
+class GameEnd(Enum):
+    DRAW    = 0
+    WIN     = 1
+    LOOSE   = 2

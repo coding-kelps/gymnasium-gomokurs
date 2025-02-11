@@ -28,7 +28,7 @@ def create_tcp_manager_interface_from_passive_connection(host: str = "localhost"
     return tcp
 
 class TcpManagerInterface(ManagerInterface):
-    PROTOCOL_VERSION = "0.1.0"
+    PROTOCOL_VERSION = "0.2.0"
 
     def __init__(self, conn: socket.socket):
         self.conn = conn
@@ -85,13 +85,24 @@ class TcpManagerInterface(ManagerInterface):
             data = self.conn.recv(1)
             if not data:
                 raise Exception("connection closed by the remote host")
-            
+
             if data == ActionID.MANAGER_START.value:
                 size = self._start_handler()
                 board = np.zeros((size, size))
                 board_initialized = True
+                self.size = size
 
                 logging.debug(f"initialized board following START action")
+
+                self._send_readiness()
+            elif data == ActionID.MANAGER_RESTART.value:
+                if not self.size:
+                    err = "manager send RESTART action but board was never initialized"
+                    self._send_error(err)
+                    raise Exception(err)
+                
+                board = np.zeros((self.size, self.size))
+                board_initialized = True
 
                 self._send_readiness()
             elif data == ActionID.MANAGER_TURN.value:
@@ -105,7 +116,7 @@ class TcpManagerInterface(ManagerInterface):
                 board[move.x][move.y] = CellStatus.OPPONENT.value
 
                 logging.debug(f"initialized state following TURN action")
-                return (size, board)
+                return (self.size, board)
             elif data == ActionID.MANAGER_BEGIN.value:
                 if not board_initialized:
                     err = "unexpected BEGIN action before game initialization"
@@ -113,7 +124,7 @@ class TcpManagerInterface(ManagerInterface):
                     raise Exception(err)
                 
                 logging.debug(f"initialized state following BEGIN action")
-                return (size, board)
+                return (self.size, board)
             elif data == ActionID.MANAGER_BOARD.value:
                 if not board_initialized:
                     err = "unexpected BOARD action before game initialization"
@@ -126,14 +137,14 @@ class TcpManagerInterface(ManagerInterface):
                     board[turn.move.x][turn.move.y] = CellStatus.PLAYER.value if turn.field == RelativeField.OWN_STONE.value else CellStatus.OPPONENT.value
                 
                 logging.debug(f"initialized state following BOARD action")
-                return (size, board)
+                return (self.size, board)
             else:
                 err = f"unexpected action with id {data} before game initialization"
                 self._send_error(err)
                 raise Exception(err)
     
-    def _receive_opponent_turn(self) -> tuple[Move | None, bool | None]:
-        while True:        
+    def _receive_opponent_turn(self) -> tuple[Move | None, GameEnd | None, bool | None]:
+        while True:
             data = self.conn.recv(1)
             if not data:
                 raise Exception("connection closed by the remote host")
@@ -141,9 +152,15 @@ class TcpManagerInterface(ManagerInterface):
             if data == ActionID.MANAGER_TURN.value:
                 move = self._turn_handler()
 
-                return (move, None)
+                return (move, None, None)
+            elif data == ActionID.MANAGER_RESULT.value:
+                game_end = self._result_handler()
+
+                return None, game_end, None
             elif data == ActionID.MANAGER_END.value:
-                return None, True
+                logging.debug("manager requested session termination")
+
+                return None, None, True
             elif data == ActionID.MANAGER_INFO.value:
                 info = self._info_handler()
 
@@ -198,7 +215,7 @@ class TcpManagerInterface(ManagerInterface):
 
         return turns
 
-    def _info_handler(self)-> str:
+    def _info_handler(self) -> str:
         data = self.conn.recv(4)
         payload_len = int.from_bytes(data, 'big')
 
@@ -207,7 +224,20 @@ class TcpManagerInterface(ManagerInterface):
 
         return info
     
-    def _about_handler(self)-> None:
+    def _result_handler(self) -> GameEnd:
+        data = self.conn.recv(1)
+        result_value = int.from_bytes(data, 'big')
+
+        if result_value == GameEnd.DRAW.value:
+            return GameEnd.DRAW
+        elif result_value == GameEnd.WIN.value:
+            return GameEnd.WIN
+        elif result_value == GameEnd.LOOSE.value:
+            return GameEnd.LOOSE
+        else:
+            Exception("invalid result value")
+
+    def _about_handler(self) -> None:
         self._send_metadata({"name": "gymnasium-gomokurs"})
     
     def _unknown_handler(self)-> str:
