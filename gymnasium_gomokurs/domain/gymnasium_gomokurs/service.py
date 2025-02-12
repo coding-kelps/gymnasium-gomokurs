@@ -62,13 +62,10 @@ class GomokursEnv(gymnasium.Env):
         truncated = True if end else False
 
         if result == GameEnd.WIN:
-            logger.info("game result - win")
             reward = 1.0
         elif result == GameEnd.DRAW:
-            logger.info("game result - draw")
             reward = 0.5
         elif result == GameEnd.LOOSE:
-            logger.info("game result - loose")
             reward = 0.0
         else:
             reward = 0.0
