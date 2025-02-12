@@ -6,6 +6,7 @@ import torch.nn as nn
 import torch.optim as optim
 import random
 from collections import deque
+import logging
 
 logging.getLogger("gymnasium-gomokurs").setLevel(logging.DEBUG)
 
@@ -98,7 +99,11 @@ class DQNAgent:
     def __init__(self, board_size, lr=1e-4, gamma=0.99,
                  epsilon_start=1.0, epsilon_final=0.1, epsilon_decay=5000,
                  buffer_capacity=10000, batch_size=32, target_update=1000):
-        self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        self.device = torch.device(
+            "cuda" if torch.cuda.is_available() else
+            "mps" if torch.backends.mps.is_available() else
+            "cpu"
+        )
         self.board_size = board_size
         self.num_actions = board_size * board_size
         self.gamma = gamma
